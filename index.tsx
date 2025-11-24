@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -10,7 +9,7 @@ import {
   History,
   Plus,
   Trash2,
-  Zap,
+  ScanEye,
   Activity,
   Wifi,
   ExternalLink,
@@ -18,19 +17,26 @@ import {
   Terminal,
   Cpu,
   ShieldAlert,
-  CheckCircle2,
-  Key
+  Key,
+  LayoutDashboard,
+  Copy,
+  ShoppingCart,
+  Coins
 } from "lucide-react";
+
+// --- PROJECT CONSTANTS (EDIT THESE) ---
+const PROJECT_CONTRACT = "0x539c92285888F572dD5c697B79872580C8B1C8D4";
+const BUY_LINK = "https://app.monad.xyz/swap"; // Replace with actual DEX link
 
 // --- TYPES ---
 
 interface BotConfig {
   rpcUrl: string;
-  apiKey: string; // Added API Key
+  apiKey: string;
   chainId: number;
   explorerUrl: string;
-  whaleThreshold: number; // In MON (for large TX highlighting)
-  scanInterval: number; // In ms
+  whaleThreshold: number;
+  scanInterval: number;
   telegramToken: string;
   discordWebhook: string;
 }
@@ -81,7 +87,6 @@ const formatRpcUrl = (url: string, apiKey: string) => {
   if (!finalUrl.startsWith("http")) {
     finalUrl = `https://${finalUrl}`;
   }
-  // If API key is present and not already in URL, append it
   if (apiKey && !finalUrl.includes(apiKey)) {
     const separator = finalUrl.includes("?") ? "&" : "?";
     finalUrl = `${finalUrl}${separator}key=${apiKey}`;
@@ -92,11 +97,10 @@ const formatRpcUrl = (url: string, apiKey: string) => {
 const fetchRpc = async (url: string, apiKey: string, method: string, params: any[] = []) => {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
 
     const validUrl = formatRpcUrl(url, apiKey);
     
-    // Some providers prefer header, some query param. We do both if key exists.
     const headers: Record<string, string> = {
       "Content-Type": "application/json"
     };
@@ -124,7 +128,6 @@ const fetchRpc = async (url: string, apiKey: string, method: string, params: any
     if (data.error) throw new Error(data.error.message);
     return data.result;
   } catch (e: any) {
-    // console.error("RPC Error:", e); // Squelch mostly to avoid console spam in UI
     throw new Error(e.message || "Network Error");
   }
 };
@@ -149,16 +152,15 @@ const shortenAddress = (addr: string) => {
 // 1. Sidebar
 const Sidebar = ({ activeTab, setActiveTab }: { activeTab: string; setActiveTab: (t: string) => void }) => {
   const menuItems = [
-    { id: "alerts", icon: Terminal, label: "Live Feed" },
-    { id: "wallets", icon: Wallet, label: "Targets" },
-    { id: "settings", icon: Settings, label: "Config" },
+    { id: "dashboard", icon: LayoutDashboard, label: "Command Center" },
+    { id: "settings", icon: Settings, label: "Configuration" },
   ];
 
   return (
     <div className="w-16 lg:w-20 bg-[#020202] border-r border-[#1F1F1F] flex flex-col h-screen fixed left-0 top-0 z-50 transition-all duration-300">
       <div className="p-4 flex items-center justify-center border-b border-[#1F1F1F]">
         <div className="w-10 h-10 bg-[#836EF9] rounded-md flex items-center justify-center shadow-[0_0_15px_rgba(131,110,249,0.5)]">
-          <Zap className="text-black w-6 h-6 fill-current" />
+          <ScanEye className="text-black w-6 h-6 fill-current" />
         </div>
       </div>
 
@@ -190,213 +192,250 @@ const Sidebar = ({ activeTab, setActiveTab }: { activeTab: string; setActiveTab:
   );
 };
 
-// 2. Alerts View (Notifications)
-const AlertsView = ({ alerts, clearAlerts, explorerUrl, networkStatus }: { alerts: Alert[]; clearAlerts: () => void; explorerUrl: string; networkStatus: string }) => {
-  return (
-    <div className="space-y-6 max-w-7xl mx-auto animate-fade-in h-full flex flex-col">
-      <div className="flex justify-between items-center mb-2">
-        <div>
-          <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2 font-mono">
-            <Activity className="text-[#836EF9]" />
-            LIVE TX FEED
-          </h2>
-        </div>
-        <button 
-          onClick={clearAlerts}
-          className="px-3 py-1.5 rounded bg-slate-900 border border-slate-800 hover:border-red-500 hover:text-red-400 transition-all text-xs text-slate-500 font-mono uppercase tracking-wider"
-        >
-          Flush Logs
-        </button>
-      </div>
-
-      <div className="glass-panel rounded-xl flex-1 relative overflow-hidden flex flex-col border border-[#1F1F1F] bg-[#050505]">
-        {/* Terminal Header */}
-        <div className="h-8 bg-[#0A0A0A] border-b border-[#1F1F1F] flex items-center px-4 gap-2">
-          <div className="w-3 h-3 rounded-full bg-red-500/20 border border-red-500/50"></div>
-          <div className="w-3 h-3 rounded-full bg-yellow-500/20 border border-yellow-500/50"></div>
-          <div className="w-3 h-3 rounded-full bg-green-500/20 border border-green-500/50"></div>
-          <div className="ml-auto text-[10px] font-mono text-slate-600">
-             {networkStatus === 'online' ? 'CONNECTED' : 'DISCONNECTED'}
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4 space-y-2 font-mono text-sm relative custom-scrollbar">
-           {/* Scan line effect */}
-          <div className="absolute top-0 left-0 w-full h-1 bg-[#836EF9] opacity-10 animate-[scan_3s_ease-in-out_infinite] pointer-events-none z-0"></div>
-
-          {alerts.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center text-slate-700 select-none">
-              <Cpu size={64} className="mb-4 opacity-20" />
-              <p className="text-sm font-bold opacity-50">NO ACTIVITY</p>
-              {networkStatus === 'offline' && (
-                 <p className="text-xs text-red-500/50 mt-2">Check Config &gt; RPC Connection</p>
-              )}
-            </div>
-          )}
-          
-          {alerts.map((alert) => (
-            <div 
-              key={alert.id} 
-              className={`relative p-3 border-l-2 transition-all duration-300 hover:bg-white/5 group z-10 animate-fade-in ${
-                alert.type === 'OUTGOING'
-                  ? 'border-red-500 bg-red-950/10' 
-                  : alert.type === 'INCOMING' 
-                    ? 'border-green-500 bg-green-950/10' 
-                    : alert.type === 'WHALE_TX'
-                      ? 'border-[#836EF9] bg-[#836EF9]/10'
-                      : alert.type === 'ERROR'
-                        ? 'border-red-700 bg-red-950/20'
-                        : 'border-slate-600 bg-slate-900/20'
-              }`}
-            >
-              <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4">
-                <div className="min-w-[80px]">
-                  <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded ${
-                     alert.type === 'OUTGOING' ? 'text-red-400 bg-red-950/30' : 
-                     alert.type === 'INCOMING' ? 'text-green-400 bg-green-950/30' :
-                     alert.type === 'WHALE_TX' ? 'text-[#836EF9] bg-[#836EF9]/20' :
-                     alert.type === 'ERROR' ? 'text-red-500 bg-red-900/20' :
-                     'text-slate-400'
-                  }`}>
-                    {alert.type}
-                  </span>
-                </div>
-
-                <div className="flex-1 flex flex-col md:flex-row md:items-center gap-2">
-                   <div className="text-slate-300">
-                     {alert.message}
-                   </div>
-                   {alert.value && (
-                     <div className="font-bold text-white bg-black/50 px-2 py-0.5 rounded border border-slate-800">
-                       {alert.value} MON
-                     </div>
-                   )}
-                </div>
-
-                <div className="flex items-center gap-4 text-xs text-slate-500">
-                  {alert.blockNumber && <span>Block: {alert.blockNumber}</span>}
-                  <span className="hidden md:inline">{new Date(alert.timestamp).toLocaleTimeString()}</span>
-                  
-                  {alert.txHash && (
-                    <a 
-                      href={`${explorerUrl}/tx/${alert.txHash}`} 
-                      target="_blank" 
-                      rel="noreferrer"
-                      className="text-[#836EF9] hover:text-white transition-colors flex items-center gap-1"
-                    >
-                      HASH <ExternalLink size={10} />
-                    </a>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// 3. Wallet Manager View
-const WalletsView = ({ 
+// 2. Dashboard View (Combined Alerts + Wallets)
+const DashboardView = ({ 
+  alerts, 
+  clearAlerts, 
+  explorerUrl, 
+  networkStatus,
   wallets, 
   addWallet, 
   removeWallet
 }: { 
-  wallets: WalletData[], 
-  addWallet: any, 
-  removeWallet: any
+  alerts: Alert[]; 
+  clearAlerts: () => void; 
+  explorerUrl: string; 
+  networkStatus: string;
+  wallets: WalletData[];
+  addWallet: (addr: string, lbl: string) => void;
+  removeWallet: (addr: string) => void;
 }) => {
   const [newAddress, setNewAddress] = useState("");
   const [newLabel, setNewLabel] = useState("");
+  const [copyFeedback, setCopyFeedback] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(PROJECT_CONTRACT);
+    setCopyFeedback(true);
+    setTimeout(() => setCopyFeedback(false), 2000);
+  };
 
   return (
-    <div className="space-y-8 max-w-4xl mx-auto">
-      <div className="flex justify-between items-end">
-        <div>
-          <h2 className="text-2xl font-bold text-white tracking-tight font-mono">TARGET LIST</h2>
-          <p className="text-slate-500 font-mono text-xs mt-1">Configure addresses to watch for TX activity</p>
+    <div className="h-full flex flex-col lg:flex-row gap-6">
+      
+      {/* LEFT COLUMN: LIVE FEED */}
+      <div className="flex-1 flex flex-col min-h-0">
+        <div className="flex justify-between items-center mb-2">
+          <div>
+            <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2 font-mono">
+              <Activity className="text-[#836EF9]" size={18} />
+              LIVE TX FEED
+            </h2>
+          </div>
+          <button 
+            onClick={clearAlerts}
+            className="px-3 py-1.5 rounded bg-slate-900 border border-slate-800 hover:border-red-500 hover:text-red-400 transition-all text-[10px] text-slate-500 font-mono uppercase tracking-wider"
+          >
+            Clear Log
+          </button>
         </div>
-      </div>
 
-      {/* Add New */}
-      <div className="bg-[#0A0A0A] p-6 rounded-xl border border-[#1F1F1F]">
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-          <div className="md:col-span-6">
-            <label className="text-[10px] font-mono text-[#836EF9] block mb-2 uppercase tracking-wider">Address</label>
-            <input 
-              className="w-full bg-[#050505] border border-slate-800 rounded-lg p-3 text-white font-mono text-sm focus:border-[#836EF9] focus:outline-none focus:ring-1 focus:ring-[#836EF9] placeholder:text-slate-700"
-              value={newAddress}
-              onChange={(e) => setNewAddress(e.target.value)}
-              placeholder="0x..."
-            />
+        <div className="glass-panel rounded-xl flex-1 relative overflow-hidden flex flex-col border border-[#1F1F1F] bg-[#050505] min-h-[400px]">
+          {/* Terminal Header */}
+          <div className="h-8 bg-[#0A0A0A] border-b border-[#1F1F1F] flex items-center px-4 gap-2 shrink-0">
+            <div className="w-2.5 h-2.5 rounded-full bg-red-500/20 border border-red-500/50"></div>
+            <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/20 border border-yellow-500/50"></div>
+            <div className="w-2.5 h-2.5 rounded-full bg-green-500/20 border border-green-500/50"></div>
+            <div className="ml-auto text-[10px] font-mono text-slate-600">
+               {networkStatus === 'online' ? 'CONNECTED' : 'DISCONNECTED'}
+            </div>
           </div>
-          <div className="md:col-span-4">
-            <label className="text-[10px] font-mono text-[#836EF9] block mb-2 uppercase tracking-wider">Label</label>
-            <input 
-              className="w-full bg-[#050505] border border-slate-800 rounded-lg p-3 text-white font-mono text-sm focus:border-[#836EF9] focus:outline-none placeholder:text-slate-700"
-              value={newLabel}
-              onChange={(e) => setNewLabel(e.target.value)}
-              placeholder="e.g. Whale 1"
-            />
-          </div>
-          <div className="md:col-span-2">
-            <button 
-              onClick={() => {
-                if (newAddress) {
-                  addWallet(newAddress, newLabel);
-                  setNewAddress("");
-                  setNewLabel("");
-                }
-              }}
-              className="w-full bg-[#836EF9] hover:bg-[#6d56e8] text-black font-bold p-3 rounded-lg flex items-center justify-center gap-2 transition-colors font-mono"
-            >
-              <Plus size={16} /> ADD
-            </button>
-          </div>
-        </div>
-      </div>
 
-      {/* List */}
-      <div className="grid grid-cols-1 gap-3">
-        {wallets.map((wallet) => (
-          <div key={wallet.address} className="bg-[#0A0A0A] border border-[#1F1F1F] rounded-lg p-4 flex items-center justify-between hover:border-slate-700 transition-all group">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded bg-[#151515] flex items-center justify-center text-slate-500 border border-[#222]">
-                <Wallet size={18} />
+          <div className="flex-1 overflow-y-auto p-4 space-y-2 font-mono text-sm relative custom-scrollbar">
+             {/* Scan line effect */}
+            <div className="absolute top-0 left-0 w-full h-1 bg-[#836EF9] opacity-10 animate-[scan_3s_ease-in-out_infinite] pointer-events-none z-0"></div>
+
+            {alerts.length === 0 && (
+              <div className="h-full flex flex-col items-center justify-center text-slate-700 select-none">
+                <Cpu size={64} className="mb-4 opacity-20" />
+                <p className="text-sm font-bold opacity-50">WAITING FOR SIGNALS</p>
+                {wallets.length === 0 ? (
+                    <p className="text-xs text-[#836EF9] mt-2 animate-pulse">Add a target wallet to start tracking</p>
+                ) : (
+                    <p className="text-xs text-slate-600 mt-2">Listening for activity on {wallets.length} targets...</p>
+                )}
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="font-bold text-white text-sm font-mono">{wallet.label}</h3>
-                  <div className="flex items-center gap-1 bg-[#111] px-2 py-0.5 rounded border border-[#222]">
-                     <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
-                     <span className="text-[9px] text-slate-500 uppercase tracking-wide">Watching</span>
+            )}
+            
+            {alerts.map((alert) => (
+              <div 
+                key={alert.id} 
+                className={`relative p-3 border-l-2 transition-all duration-300 hover:bg-white/5 group z-10 animate-fade-in ${
+                  alert.type === 'OUTGOING'
+                    ? 'border-red-500 bg-red-950/10' 
+                    : alert.type === 'INCOMING' 
+                      ? 'border-green-500 bg-green-950/10' 
+                      : alert.type === 'WHALE_TX'
+                        ? 'border-[#836EF9] bg-[#836EF9]/10'
+                        : alert.type === 'ERROR'
+                          ? 'border-red-700 bg-red-950/20'
+                          : 'border-slate-600 bg-slate-900/20'
+                }`}
+              >
+                <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4">
+                  <div className="min-w-[70px]">
+                    <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded ${
+                       alert.type === 'OUTGOING' ? 'text-red-400 bg-red-950/30' : 
+                       alert.type === 'INCOMING' ? 'text-green-400 bg-green-950/30' :
+                       alert.type === 'WHALE_TX' ? 'text-[#836EF9] bg-[#836EF9]/20' :
+                       alert.type === 'ERROR' ? 'text-red-500 bg-red-900/20' :
+                       'text-slate-400'
+                    }`}>
+                      {alert.type}
+                    </span>
+                  </div>
+
+                  <div className="flex-1 flex flex-col md:flex-row md:items-center gap-2">
+                     <div className="text-slate-300 text-xs md:text-sm">
+                       {alert.message}
+                     </div>
+                     {alert.value && (
+                       <div className="font-bold text-white bg-black/50 px-2 py-0.5 rounded border border-slate-800 text-xs">
+                         {alert.value} MON
+                       </div>
+                     )}
+                  </div>
+
+                  <div className="flex items-center gap-4 text-[10px] text-slate-500">
+                    <span className="hidden md:inline">{new Date(alert.timestamp).toLocaleTimeString()}</span>
+                    
+                    {alert.txHash && (
+                      <a 
+                        href={`${explorerUrl}/tx/${alert.txHash}`} 
+                        target="_blank" 
+                        rel="noreferrer"
+                        className="text-[#836EF9] hover:text-white transition-colors flex items-center gap-1"
+                      >
+                        HASH <ExternalLink size={10} />
+                      </a>
+                    )}
                   </div>
                 </div>
-                <p className="font-mono text-slate-600 text-xs mt-1">{wallet.address}</p>
               </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* RIGHT COLUMN: WALLET MANAGER + TOKEN PROMO */}
+      <div className="w-full lg:w-[400px] flex flex-col gap-6 shrink-0">
+        
+        {/* Token Promo Widget */}
+        <div className="bg-gradient-to-br from-[#1a1a1a] to-[#050505] border border-[#333] rounded-xl p-5 shadow-[0_0_20px_rgba(0,0,0,0.5)] relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-[#836EF9] opacity-10 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2 group-hover:opacity-20 transition-opacity"></div>
+            
+            <div className="flex justify-between items-start mb-4 relative z-10">
+                <div>
+                    <h3 className="text-white font-bold font-mono text-sm flex items-center gap-2">
+                        <Coins size={14} className="text-[#836EF9]" />
+                        WATCHDOG TOKEN
+                    </h3>
+                    <p className="text-[10px] text-slate-500 mt-1">Official Project Utility Token</p>
+                </div>
+                <a 
+                    href={BUY_LINK} 
+                    target="_blank" 
+                    rel="noreferrer" 
+                    className="bg-[#836EF9] hover:bg-[#725ce0] text-black text-xs font-bold px-3 py-1.5 rounded flex items-center gap-1 transition-colors"
+                >
+                    <ShoppingCart size={12} /> BUY NOW
+                </a>
+            </div>
+
+            <div className="bg-black/40 border border-[#222] rounded p-2 flex items-center justify-between group/code cursor-pointer relative z-10" onClick={handleCopy}>
+                <code className="text-[10px] text-slate-400 font-mono truncate mr-2">
+                    {PROJECT_CONTRACT}
+                </code>
+                <div className={`text-[#836EF9] transition-all ${copyFeedback ? 'scale-110 text-green-400' : ''}`}>
+                    {copyFeedback ? <ShieldAlert size={12} /> : <Copy size={12} />}
+                </div>
+            </div>
+        </div>
+
+        {/* Add Wallet Form */}
+        <div className="bg-[#0A0A0A] border border-[#1F1F1F] rounded-xl flex flex-col flex-1 min-h-[400px]">
+            <div className="p-4 border-b border-[#1F1F1F] bg-[#111]">
+                <h3 className="font-bold text-white text-xs font-mono uppercase flex items-center gap-2">
+                    <Wallet size={14} /> Target Management
+                </h3>
             </div>
             
-            <button 
-              onClick={() => removeWallet(wallet.address)}
-              className="w-8 h-8 flex items-center justify-center text-slate-700 hover:text-red-500 hover:bg-red-950/20 rounded transition-colors"
-            >
-              <Trash2 size={16} />
-            </button>
-          </div>
-        ))}
-        
-        {wallets.length === 0 && (
-          <div className="text-center py-12 border border-dashed border-slate-800 rounded-xl text-slate-700 font-mono text-sm">
-            [EMPTY TARGET LIST]
-          </div>
-        )}
+            <div className="p-4 border-b border-[#1F1F1F]">
+                <div className="space-y-3">
+                    <div>
+                        <input 
+                        className="w-full bg-[#050505] border border-slate-800 rounded p-2 text-white font-mono text-xs focus:border-[#836EF9] focus:outline-none placeholder:text-slate-700"
+                        value={newAddress}
+                        onChange={(e) => setNewAddress(e.target.value)}
+                        placeholder="0x Address..."
+                        />
+                    </div>
+                    <div className="flex gap-2">
+                        <input 
+                        className="flex-1 bg-[#050505] border border-slate-800 rounded p-2 text-white font-mono text-xs focus:border-[#836EF9] focus:outline-none placeholder:text-slate-700"
+                        value={newLabel}
+                        onChange={(e) => setNewLabel(e.target.value)}
+                        placeholder="Label (e.g. Whale)"
+                        />
+                        <button 
+                        onClick={() => {
+                            if (newAddress) {
+                                addWallet(newAddress, newLabel);
+                                setNewAddress("");
+                                setNewLabel("");
+                            }
+                        }}
+                        className="bg-[#222] hover:bg-[#836EF9] hover:text-black text-white px-3 rounded border border-slate-800 transition-colors"
+                        >
+                        <Plus size={16} />
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* Wallet List */}
+            <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
+                {wallets.length === 0 && (
+                    <div className="text-center py-8 text-slate-700 font-mono text-[10px]">
+                        Add wallets to begin tracking
+                    </div>
+                )}
+                {wallets.map((wallet) => (
+                    <div key={wallet.address} className="bg-[#050505] border border-[#1F1F1F] rounded p-3 flex items-center justify-between hover:border-slate-700 transition-all group">
+                        <div className="overflow-hidden">
+                            <div className="flex items-center gap-2">
+                                <h3 className="font-bold text-slate-300 text-xs font-mono truncate">{wallet.label}</h3>
+                                <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shrink-0"></div>
+                            </div>
+                            <p className="font-mono text-slate-600 text-[10px] truncate">{shortenAddress(wallet.address)}</p>
+                        </div>
+                        
+                        <button 
+                        onClick={() => removeWallet(wallet.address)}
+                        className="text-slate-700 hover:text-red-500 hover:bg-red-950/20 p-1 rounded transition-colors"
+                        >
+                        <Trash2 size={12} />
+                        </button>
+                    </div>
+                ))}
+            </div>
+        </div>
       </div>
     </div>
   );
 };
 
-// 4. Configuration View
+// 3. Configuration View (UNCHANGED LOGIC, JUST STYLING MATCH)
 const ConfigView = ({ 
   config, 
   setConfig, 
@@ -423,7 +462,7 @@ const ConfigView = ({
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       <div>
-          <h2 className="text-2xl font-bold text-white tracking-tight font-mono">SYSTEM CONFIG</h2>
+          <h2 className="text-xl font-bold text-white tracking-tight font-mono">SYSTEM CONFIG</h2>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -605,7 +644,7 @@ const ConfigView = ({
 // --- MAIN APP COMPONENT ---
 
 const App = () => {
-  const [activeTab, setActiveTab] = useState("alerts");
+  const [activeTab, setActiveTab] = useState("dashboard");
   const [config, setConfig] = useState<BotConfig>(DEFAULT_CONFIG);
   const [history, setHistory] = useState<ConfigSnapshot[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -801,7 +840,7 @@ const App = () => {
           <div>
             <div className="flex items-center gap-3">
                <h1 className="text-sm font-bold text-slate-400 uppercase tracking-widest font-mono">
-                 MONAD.WATCHDOG // {activeTab.toUpperCase()}
+                 WATCHDOG // {activeTab.toUpperCase()}
                </h1>
             </div>
           </div>
@@ -833,20 +872,16 @@ const App = () => {
         </header>
 
         <div className="relative z-10 h-[calc(100vh-140px)]">
-          {activeTab === "alerts" && (
-              <AlertsView 
+          {activeTab === "dashboard" && (
+              <DashboardView 
                 alerts={alerts} 
                 clearAlerts={() => setAlerts([])} 
                 explorerUrl={config.explorerUrl}
                 networkStatus={networkStatus}
+                wallets={wallets}
+                addWallet={addWallet}
+                removeWallet={removeWallet}
               />
-          )}
-          {activeTab === "wallets" && (
-            <WalletsView 
-              wallets={wallets} 
-              addWallet={addWallet} 
-              removeWallet={removeWallet} 
-            />
           )}
           {activeTab === "settings" && (
             <ConfigView 
