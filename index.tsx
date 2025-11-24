@@ -229,7 +229,7 @@ const AlertsView = ({ alerts, clearAlerts, explorerUrl, networkStatus }: { alert
               <Cpu size={64} className="mb-4 opacity-20" />
               <p className="text-sm font-bold opacity-50">NO ACTIVITY</p>
               {networkStatus === 'offline' && (
-                 <p className="text-xs text-red-500/50 mt-2">Check Config > RPC Connection</p>
+                 <p className="text-xs text-red-500/50 mt-2">Check Config &gt; RPC Connection</p>
               )}
             </div>
           )}
